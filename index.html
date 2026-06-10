@@ -562,9 +562,122 @@ tr:last-child td {
   }
 }
 
+/* ── Sync-Status ── */
+.sync-status {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  color: var(--text2);
+  background: var(--surface2);
+  white-space: nowrap;
+}
+.sync-status.online   { color: var(--green); }
+.sync-status.syncing  { color: var(--amber); }
+.sync-status.offline  { color: var(--text3); }
+.sync-status.error    { color: var(--red); }
+
+/* ── Auth-Overlay ── */
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+.auth-card {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px 24px;
+  width: 100%;
+  max-width: 380px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+}
+.auth-card h2 { font-size: 20px; margin-bottom: 4px; }
+.auth-card .auth-sub { font-size: 13px; color: var(--text2); margin-bottom: 20px; }
+.auth-card label { display: block; font-size: 12px; color: var(--text2); margin: 12px 0 4px; }
+.auth-card input {
+  width: 100%;
+  padding: 11px 12px;
+  font-size: 15px;
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  background: var(--surface2);
+  color: var(--text);
+}
+.auth-card input:focus { outline: 2px solid var(--green); outline-offset: -1px; }
+.auth-btn {
+  width: 100%;
+  margin-top: 18px;
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--green);
+  color: #fff;
+  cursor: pointer;
+}
+.auth-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.auth-toggle {
+  margin-top: 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text2);
+}
+.auth-toggle a { color: var(--green); cursor: pointer; font-weight: 500; }
+.auth-msg {
+  margin-top: 14px;
+  font-size: 13px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  display: none;
+}
+.auth-msg.err { display: block; background: rgba(216,90,48,0.12); color: var(--red); }
+.auth-msg.ok  { display: block; background: rgba(29,158,117,0.12); color: var(--green); }
+.auth-skip {
+  margin-top: 14px;
+  text-align: center;
+  font-size: 12px;
+}
+.auth-skip a { color: var(--text3); cursor: pointer; text-decoration: underline; }
+
   </style>
 </head>
 <body>
+
+<!-- AUTH-OVERLAY -->
+<div class="auth-overlay" id="auth-overlay" style="display:none">
+  <div class="auth-card">
+    <h2 id="auth-title">Anmelden</h2>
+    <p class="auth-sub" id="auth-sub">Melde dich an, um deine Daten geräteübergreifend zu synchronisieren.</p>
+
+    <label for="auth-email">E-Mail</label>
+    <input type="email" id="auth-email" autocomplete="email" placeholder="name@beispiel.de">
+
+    <label for="auth-pass">Passwort</label>
+    <input type="password" id="auth-pass" autocomplete="current-password" placeholder="••••••••">
+
+    <div class="auth-msg" id="auth-msg"></div>
+
+    <button class="auth-btn" id="auth-submit" onclick="hbAuthSubmit()">Anmelden</button>
+
+    <p class="auth-toggle" id="auth-toggle">
+      Noch kein Konto? <a onclick="hbAuthToggle()">Registrieren</a>
+    </p>
+    <p class="auth-skip">
+      <a onclick="hbAuthSkip()">Ohne Anmeldung lokal weiterarbeiten</a>
+    </p>
+  </div>
+</div>
+
 <div class="app">
 
   <!-- Header -->
@@ -574,8 +687,10 @@ tr:last-child td {
       <p class="subtitle">Familienfinanzen · Jahresplanung</p>
     </div>
     <div class="header-actions">
+      <span id="sync-status" class="sync-status" title="Cloud-Synchronisation">●&nbsp;Offline</span>
       <button class="btn" onclick="exportData()" title="Daten als JSON speichern">💾 Exportieren</button>
       <button class="btn" onclick="importData()" title="JSON-Datei laden">📂 Importieren</button>
+      <button class="btn" id="logout-btn" onclick="hbLogout()" style="display:none" title="Abmelden">🚪 Logout</button>
     </div>
   </div>
 
@@ -780,6 +895,7 @@ tr:last-child td {
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 /* ── storage.js ── */
 /**
@@ -827,11 +943,12 @@ function idbGet() {
   });
 }
 
-/** Alle Daten speichern (localStorage + IndexedDB) */
+/** Alle Daten speichern (localStorage + IndexedDB + Cloud) */
 function save() {
   const json = JSON.stringify(ST);
   try { localStorage.setItem('haushaltsbuch_v1', json); } catch (e) { /* quota */ }
   idbSet(json);
+  cloudSaveDebounced();
 }
 
 /** Daten laden – erst localStorage, dann IndexedDB */
@@ -1475,9 +1592,240 @@ function renderCharts() {
 }
 
 
+/* ── supabase.js ── */
+/**
+ * Cloud-Synchronisation via Supabase.
+ * Speichert den kompletten App-State (ST) als JSONB pro Nutzer.
+ * Mehrere Geräte / beide Partner: einfach mit demselben Konto anmelden.
+ */
+
+const SB_URL  = 'https://sntkvqzfiyhtvtufqfgp.supabase.co';
+const SB_KEY  = 'sb_publishable_6xbD_lAeICWBhdLWDmGmpQ_DBZmUH_A';
+
+let sb        = null;   // Supabase-Client
+let hbUser    = null;   // aktueller User
+let _isSignup = false;
+let _saveTimer = null;
+let _rtChannel = null;
+
+/* ── Status-Anzeige ── */
+function setSyncStatus(state, text) {
+  const el = document.getElementById('sync-status');
+  if (!el) return;
+  el.className = 'sync-status ' + state;
+  el.innerHTML = '●&nbsp;' + text;
+}
+
+/* ── Client initialisieren ── */
+function initSupabase() {
+  try {
+    sb = window.supabase.createClient(SB_URL, SB_KEY);
+    return true;
+  } catch (e) {
+    sb = null;
+    return false;
+  }
+}
+
+/* ── Cloud speichern (debounced, 800ms) ── */
+function cloudSaveDebounced() {
+  if (!sb || !hbUser) return;
+  clearTimeout(_saveTimer);
+  setSyncStatus('syncing', 'Speichern…');
+  _saveTimer = setTimeout(cloudSaveNow, 800);
+}
+
+async function cloudSaveNow() {
+  if (!sb || !hbUser) return;
+  try {
+    const { error } = await sb.from('hb_data').upsert({
+      user_id:    hbUser.id,
+      data:       ST,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) { setSyncStatus('error', 'Fehler'); console.warn(error); return; }
+    setSyncStatus('online', 'Synchron');
+  } catch (e) {
+    setSyncStatus('error', 'Fehler');
+  }
+}
+
+/* ── Cloud laden ── */
+async function cloudLoad() {
+  if (!sb || !hbUser) return false;
+  try {
+    const { data, error } = await sb
+      .from('hb_data')
+      .select('data')
+      .eq('user_id', hbUser.id)
+      .maybeSingle();
+    if (error) { setSyncStatus('error', 'Fehler'); return false; }
+    if (data && data.data && Object.keys(data.data).length) {
+      ST = data.data;
+      return true;
+    }
+    return false; // noch keine Cloud-Daten
+  } catch (e) {
+    setSyncStatus('error', 'Fehler');
+    return false;
+  }
+}
+
+/* ── Realtime: Änderungen anderer Geräte übernehmen ── */
+function subscribeRealtime() {
+  if (!sb || !hbUser) return;
+  if (_rtChannel) { sb.removeChannel(_rtChannel); _rtChannel = null; }
+  _rtChannel = sb
+    .channel('hb_' + hbUser.id)
+    .on('postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'hb_data', filter: 'user_id=eq.' + hbUser.id },
+      (payload) => {
+        if (payload.new && payload.new.data) {
+          ST = payload.new.data;
+          try { localStorage.setItem('haushaltsbuch_v1', JSON.stringify(ST)); } catch (e) {}
+          idbSet(JSON.stringify(ST));
+          initUI();
+          setSyncStatus('online', 'Aktualisiert');
+        }
+      })
+    .subscribe();
+}
+
+/* ════════════════════════════════════════════
+   Auth-Flow
+════════════════════════════════════════════ */
+
+/** Nach erfolgreichem Login: Daten laden, UI aufbauen, Realtime starten */
+async function onSignedIn(user) {
+  hbUser = user;
+  document.getElementById('auth-overlay').style.display = 'none';
+  document.getElementById('logout-btn').style.display = '';
+  setSyncStatus('syncing', 'Lade…');
+
+  const hadCloud = await cloudLoad();
+  if (!hadCloud) {
+    // Erstanmeldung: lokale Daten in die Cloud übernehmen
+    await cloudSaveNow();
+  }
+  setSyncStatus('online', 'Synchron');
+  initUI();
+  subscribeRealtime();
+}
+
+function showAuthMsg(text, type) {
+  const el = document.getElementById('auth-msg');
+  el.textContent = text;
+  el.className = 'auth-msg ' + type;
+}
+
+function hbAuthToggle() {
+  _isSignup = !_isSignup;
+  document.getElementById('auth-title').textContent  = _isSignup ? 'Registrieren' : 'Anmelden';
+  document.getElementById('auth-submit').textContent = _isSignup ? 'Konto erstellen' : 'Anmelden';
+  document.getElementById('auth-sub').textContent = _isSignup
+    ? 'Erstelle ein Konto, um deine Daten in der Cloud zu sichern.'
+    : 'Melde dich an, um deine Daten geräteübergreifend zu synchronisieren.';
+  document.getElementById('auth-toggle').innerHTML = _isSignup
+    ? 'Schon ein Konto? <a onclick="hbAuthToggle()">Anmelden</a>'
+    : 'Noch kein Konto? <a onclick="hbAuthToggle()">Registrieren</a>';
+  document.getElementById('auth-msg').className = 'auth-msg';
+  document.getElementById('auth-pass').setAttribute('autocomplete', _isSignup ? 'new-password' : 'current-password');
+}
+
+async function hbAuthSubmit() {
+  const email = document.getElementById('auth-email').value.trim();
+  const pass  = document.getElementById('auth-pass').value;
+  const btn   = document.getElementById('auth-submit');
+
+  if (!email || !pass) { showAuthMsg('Bitte E-Mail und Passwort eingeben.', 'err'); return; }
+  if (_isSignup && pass.length < 6) { showAuthMsg('Passwort muss mindestens 6 Zeichen haben.', 'err'); return; }
+
+  btn.disabled = true;
+  btn.textContent = _isSignup ? 'Erstelle Konto…' : 'Melde an…';
+
+  try {
+    if (_isSignup) {
+      const { data, error } = await sb.auth.signUp({ email, password: pass });
+      if (error) { showAuthMsg(translateAuthErr(error.message), 'err'); return; }
+      if (data.session) {
+        await onSignedIn(data.user);
+      } else {
+        showAuthMsg('✅ Konto erstellt! Bitte bestätige deine E-Mail und melde dich anschließend an.', 'ok');
+        _isSignup = false; hbAuthToggle();
+      }
+    } else {
+      const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+      if (error) { showAuthMsg(translateAuthErr(error.message), 'err'); return; }
+      await onSignedIn(data.user);
+    }
+  } catch (e) {
+    showAuthMsg('Verbindungsfehler. Bitte später erneut versuchen.', 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = _isSignup ? 'Konto erstellen' : 'Anmelden';
+  }
+}
+
+function translateAuthErr(msg) {
+  if (/invalid login/i.test(msg))        return 'E-Mail oder Passwort ist falsch.';
+  if (/already registered/i.test(msg))   return 'Diese E-Mail ist bereits registriert.';
+  if (/email/i.test(msg) && /valid/i.test(msg)) return 'Bitte eine gültige E-Mail-Adresse eingeben.';
+  if (/rate limit/i.test(msg))           return 'Zu viele Versuche. Bitte kurz warten.';
+  return msg;
+}
+
+/** Ohne Login lokal weiterarbeiten */
+function hbAuthSkip() {
+  document.getElementById('auth-overlay').style.display = 'none';
+  setSyncStatus('offline', 'Lokal');
+  initUI();
+}
+
+async function hbLogout() {
+  if (!sb) return;
+  if (_rtChannel) { sb.removeChannel(_rtChannel); _rtChannel = null; }
+  await sb.auth.signOut();
+  hbUser = null;
+  document.getElementById('logout-btn').style.display = 'none';
+  setSyncStatus('offline', 'Abgemeldet');
+  // Auth-Overlay wieder zeigen
+  document.getElementById('auth-email').value = '';
+  document.getElementById('auth-pass').value = '';
+  document.getElementById('auth-msg').className = 'auth-msg';
+  document.getElementById('auth-overlay').style.display = 'flex';
+}
+
+
 /* ── app.js ── */
-document.addEventListener('DOMContentLoaded', () => {
-  openIDB().then(() => load()).then(() => initUI());
+document.addEventListener('DOMContentLoaded', async () => {
+  // Lokale Daten zuerst laden (schneller Start / Offline-Fallback)
+  await openIDB();
+  await load();
+
+  // Supabase initialisieren
+  const ok = initSupabase();
+  if (!ok || !window.supabase) {
+    // Kein Supabase verfügbar → rein lokal
+    setSyncStatus('offline', 'Lokal');
+    initUI();
+    return;
+  }
+
+  // Bestehende Sitzung prüfen
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session && session.user) {
+      await onSignedIn(session.user);
+    } else {
+      // Kein Login → Overlay zeigen, UI im Hintergrund schon rendern
+      initUI();
+      document.getElementById('auth-overlay').style.display = 'flex';
+      setSyncStatus('offline', 'Nicht angemeldet');
+    }
+  } catch (e) {
+    initUI();
+    setSyncStatus('offline', 'Lokal');
+  }
 });
 </script>
 </body>
