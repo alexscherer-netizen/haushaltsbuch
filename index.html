@@ -2,7 +2,10 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#1D9E75">
   <meta name="description" content="Haushaltsbuch für Paare – Einnahmen, Ausgaben, Gemeinschaftskonto, Jahresplanung">
   <title>Haushaltsbuch</title>
   <style>
@@ -540,26 +543,189 @@ tr:last-child td {
   vertical-align: middle;
 }
 
-/* ── Responsive ── */
-@media (max-width: 580px) {
-  .grid2 {
-    grid-template-columns: 1fr;
+/* ── Responsive: Tablet (≤1024px) ── */
+@media (max-width: 1024px) {
+  .app {
+    padding: 20px 16px 56px;
+  }
+  .metrics {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+}
+
+/* ── Responsive: Smartphone (≤640px) ── */
+@media (max-width: 640px) {
+  body {
+    font-size: 15px;
+    -webkit-text-size-adjust: 100%;
   }
 
-  .tab {
-    font-size: 11px;
-    padding: 7px 3px;
-    min-width: 55px;
+  .app {
+    padding: 14px 12px 80px;
+    /* iPhone-Notch / Safe-Area berücksichtigen */
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+    padding-bottom: max(80px, env(safe-area-inset-bottom));
   }
 
-  .month-grid {
-    grid-template-columns: repeat(4, 1fr);
+  .app-header {
+    margin-bottom: 16px;
   }
 
+  h1 { font-size: 20px; }
+
+  /* Header-Aktionen: Sync-Status oben, Buttons in eigener Reihe */
   .header-actions {
     width: 100%;
-    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
   }
+  .header-actions .btn {
+    flex: 1;
+    min-width: 0;
+    padding: 10px 8px;
+    text-align: center;
+  }
+  #sync-status {
+    flex-basis: 100%;
+    justify-content: center;
+  }
+
+  /* Tabs scrollbar statt umbrechen */
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    margin-bottom: 18px;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab {
+    flex: 0 0 auto;
+    min-width: 72px;
+    font-size: 13px;
+    padding: 10px 12px;
+    white-space: nowrap;
+  }
+
+  /* Ein-Spalten-Layout */
+  .grid2 {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .card {
+    padding: 14px 14px;
+  }
+
+  /* Touch-freundliche Eingaben: 16px verhindert iOS-Auto-Zoom */
+  .field input,
+  .add-row input[type=text],
+  .add-row input[type=number],
+  .auth-card input,
+  .name-input {
+    font-size: 16px;
+  }
+  .field input {
+    padding: 11px 12px;
+  }
+
+  /* Add-Row: Name volle Breite, Betrag + Button darunter */
+  .add-row {
+    gap: 8px;
+  }
+  .add-row input[type=text] {
+    flex: 1 1 100%;
+    padding: 11px 12px;
+  }
+  .add-row input[type=number] {
+    flex: 1 1 auto;
+    width: auto;
+    padding: 11px 10px;
+  }
+  .add-row .btn {
+    flex: 0 0 auto;
+    padding: 11px 16px;
+  }
+
+  /* Größere Touch-Targets */
+  .btn {
+    padding: 10px 14px;
+    font-size: 14px;
+  }
+  .item {
+    padding: 9px 0;
+  }
+  .item-name, .item-amt { font-size: 14px; }
+  .item-del {
+    font-size: 16px;
+    padding: 6px 10px;
+    margin: -4px 0;
+  }
+
+  /* Monats-Buttons (Einkauf): 3 Spalten, fingerfreundlich */
+  .month-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .month-btn {
+    padding: 12px 4px;
+    font-size: 13px;
+  }
+
+  /* Monats-Auswahl-Dropdown größer */
+  .month-sel-bar select {
+    font-size: 16px;
+    padding: 10px;
+  }
+
+  /* Tabellen: horizontal scrollbar mit sanftem Touch-Scroll */
+  .table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin: 0 -14px;
+    padding: 0 14px;
+  }
+  .table-wrap table {
+    min-width: 480px;
+  }
+  .table-wrap table.year-table {
+    min-width: 760px;
+  }
+  th, td {
+    padding: 9px 8px;
+    font-size: 13px;
+  }
+  th { font-size: 11px; }
+
+  /* Charts etwas niedriger auf dem Handy */
+  .chart-wrap { height: 240px; }
+
+  /* Auth-Overlay füllt den Screen besser */
+  .auth-card {
+    padding: 24px 20px;
+  }
+}
+
+/* ── Sehr kleine Geräte (≤380px) ── */
+@media (max-width: 380px) {
+  .tab { min-width: 64px; padding: 9px 10px; }
+  .month-grid { grid-template-columns: repeat(2, 1fr); }
+  h1 { font-size: 18px; }
+}
+
+/* ── Touch-Geräte: keine klebenden Hover-Zustände ── */
+@media (hover: none) {
+  .btn:hover { background: var(--surface2); }
+  .tab:hover:not(.active) { color: var(--text2); }
+  .month-btn:hover:not(.active) { color: var(--text2); background: var(--surface2); }
+  .item-del:hover { color: var(--text3); background: none; }
+}
+
+/* Tap-Highlight dezent halten */
+button, .tab, .month-btn, .item-del, .auth-toggle a, .auth-skip a {
+  -webkit-tap-highlight-color: rgba(29,158,117,0.15);
+  touch-action: manipulation;
 }
 
 /* ── Sync-Status ── */
@@ -1425,7 +1591,7 @@ function renderYear() {
         <span class="card-title">Jahresplanung ${new Date().getFullYear()}</span>
       </div>
       <div class="table-wrap">
-        <table>
+        <table class="year-table">
           <thead>
             <tr>
               <th>Monat</th>
